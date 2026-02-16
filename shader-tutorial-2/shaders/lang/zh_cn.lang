@@ -1,0 +1,5 @@
+screen.World = 世界
+
+screen.Wave = 摇晃
+    option.WAVE_STRENGTH = 摇晃幅度
+    option.WAVE_SPEED = 摇晃速度

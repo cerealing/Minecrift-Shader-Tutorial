@@ -1,1 +1,0 @@
-#define BLOCK_GRASS_SHORT 12
