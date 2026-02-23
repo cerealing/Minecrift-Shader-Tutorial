@@ -8,9 +8,11 @@ flat in float material_id;
 flat in vec3 sunVec;
 in vec4 color;
 in vec4 lmtexcoord;
-flat in vec4 sunlightColor;
+//flat in vec4 sunlightColor;
+flat in float SunOrMoon;
 in mat3 TBN;
 
+uniform float wetness;
 uniform vec3 sunPosition;
 uniform vec3 shadowLightPosition;
 uniform mat4 gbufferModelView;
@@ -51,8 +53,18 @@ const vec3 METAL_K[METAL_COUNT] = vec3[METAL_COUNT](
 );
 
 const vec2 DIR_AMB[2] = vec2[2](
-    vec2(0.6, 1.0),
-    vec2(1.8, 0.2)
+    vec2(0.55, 1.3),
+    vec2(0.7, 0.5)
+);
+
+const vec3 SunOrMoonLight[2] = vec3[2](
+    vec3(sunColorR, sunColorG, sunColorB),
+    vec3(moonColorR, moonColorG, moonColorB)
+);
+
+const vec2 SunOrMoonIlluminanceAndTemp[2] = vec2[2](
+    vec2(sun_illuminance, Sun_temp),
+    vec2(moon_illuminance, Moon_temp)
 );
 
 #define diagonal3(m) vec3((m)[0].x, (m)[1].y, (m)[2].z )
@@ -242,20 +254,19 @@ void main()
     float roughness = pow(1.0 - perceptualSmoothness, 2.0);
 
     float f0 = speInf.g;
+    
     int metalId = int(f0 * 255.0 + 0.5);
     #ifdef FORCIBLY_ENABLE_PBR
-    float is_iron = float(material_id == BLOCK_IRON);
-    metalId = int(mix(metalId, 230, is_iron));
-    float is_gold = float(material_id == BLOCK_GOLD);
-    metalId = int(mix(metalId, 231, is_gold));
-    float is_copper = float(material_id == BLOCK_COPPER);
-    metalId = int(mix(metalId, 234, is_copper));
+    #ifdef MC_TEXTURE_FORMAT_LAB_PBR
+        float is_iron = float(material_id == BLOCK_IRON);
+        metalId = int(mix(metalId, 230, is_iron));
+        float is_gold = float(material_id == BLOCK_GOLD);
+        metalId = int(mix(metalId, 231, is_gold));
+        float is_copper = float(material_id == BLOCK_COPPER);
+        metalId = int(mix(metalId, 234, is_copper));
     #endif
-    //if (is_iron == 1.0)
-    //{
-    //    outcolor = vec4(1.0);
-    //    return;
-    //}
+    #endif
+    
 
     int metalIndex = metalId - METAL_ID_BASE;
     int metalInRange = int(metalIndex >= 0 && metalIndex < METAL_COUNT);
@@ -292,6 +303,18 @@ void main()
     
     vec3 H = normalize(V + L);
 
+    #ifndef MC_TEXTURE_FORMAT_LAB_PBR
+        #ifdef FORCIBLY_ENABLE_VANILLA_PBR
+            N = normalize(TBN[2]);
+            f0 = 0.1;
+            roughness = 2.0;
+        #endif
+    #endif
+    roughness = mix (roughness, 2.0 * roughness, wetness);
+    f0 = mix (f0 * 0.5, f0, wetness);
+    float ifPorosity = float(material_id == BLOCK_POROSITY);
+    porosity = mix(porosity, 1.0, ifPorosity);
+
     float NoV = clamp(dot(N, V), 0.0, 1.0);
     float NoL = clamp(dot(N, L), 0.0, 1.0);
     float NoH = clamp(dot(N, H), 0.0, 1.0);
@@ -320,25 +343,32 @@ void main()
     vec3 specBRDF = (D * G) * F / max(4.0 * NoV * NoL, 1e-6);
 
     float metallic = float(metalInRange);
-    vec3 kd = (vec3(1.0) - F) * (1.0 - metallic);
+    float metal_conpensate = 0.0;// mix(0.0, VANILLA_METAL_CONPENSATE * 0.093, metallic);
+    vec3 kd = (vec3(1.0) - F + metal_conpensate) * (1.0 - metallic + metal_conpensate);
     vec3 diffuseBRDF = kd * albedo.rgb * (1.0 / 3.14159265);
 
-    vec3 direct = sunlightColor.rgb * NoL * (diffuseBRDF * 3.5 * DIFFUSE_BRDF + specBRDF * 1.0);// * shadow * 2.0;
+    vec3 direct = SunOrMoonLight[int(SunOrMoon)] * NoL * (diffuseBRDF * 1.0 * DIFFUSE_BRDF + specBRDF * 1.0);// * shadow * 2.0;
 
     vec3 lm = SrgbToLinear(texture(lightmap, lmtexcoord.zw).rgb);
 
     // Simple hemisphere ambient (sky vs ground) to avoid pitch-black shading.
     float hemi = clamp(N.y * 0.5 + 0.5, 0.0, 1.0);
     vec3 ambientHemi = mix(vec3(0.045, 0.040, 0.038), vec3(0.16, 0.18, 0.22), hemi);
-    vec3 ambient = albedo.rgb * (ambientHemi * 0.25 + 0.5 * lm);
+    vec3 ambient = albedo.rgb * (ambientHemi * 0.25 + (0.5 + VANILLA_METAL_CONPENSATE) * lm);
 
     vec2 dir_amb = DIR_AMB[metalInRange];
 
-    vec3 radiance = (pow(direct, vec3(dir_amb[0])) + ambient * dir_amb[1]) * clamp(occlusion, 0.0, 1.0);
+    vec3 radiance = (pow(direct, vec3(dir_amb[0])) * (1.0 - wetness * porosity) + ambient * dir_amb[1]) * clamp(occlusion, 0.0, 1.0);
 
     radiance += albedo.rgb * emissive;
 
     outcolor = vec4(LinearToSrgb(radiance), albedo.a);
+    //outcolor.rgb += albedo.rgb * VANILLA_METAL_CONPENSATE * 0.5;
     
     //outcolor = vec4(radiance, albedo.a);
+    if (porosity > 0.001)
+    {
+        //outcolor = vec4(1.0);
+        return;
+    }
 }

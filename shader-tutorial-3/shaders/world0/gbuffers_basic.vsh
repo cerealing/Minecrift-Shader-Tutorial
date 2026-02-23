@@ -11,7 +11,8 @@ flat out float material_id;
 flat out vec3 sunVec;
 out vec4 color;
 out vec4 lmtexcoord;
-flat out vec4 sunlightColor;
+//flat out vec4 sunlightColor;
+flat out float SunOrMoon;
 out mat3 TBN;
 
 uniform float sunElevation;
@@ -90,15 +91,16 @@ void main()
 
     position += wave_move;
     //position = mat3(gbufferModelView) * vec3(position) + gbufferModelView[3].xyz;
-    position = mat3(gl_ModelViewMatrix) * vec3(gl_Vertex) + gl_ModelViewMatrix[3].xyz;
+    position = mat3(gl_ModelViewMatrix) * vec3(position) + gl_ModelViewMatrix[3].xyz;
 
-    sunlightColor.rgb = vec3(1.0, 0.91, 0.81);
-	sunlightColor.a = float(sunElevation > 1e-5) * 2.0 - 1.0;
+    //sunlightColor.rgb = vec3(1.0, 0.91, 0.81);
+	//sunlightColor.a = float(sunElevation > 1e-5) * 2.0 - 1.0;
 
     // Iris/OptiFine provide sunPosition in view space, but its direction is the *incoming* light direction.
     // We want L to point *toward the light source* for NoL = dot(N, L).
     // sunlightColor.a flips to the opposite direction at night (moon).
-    sunVec = normalize(sunPosition) * sunlightColor.a;
+    //sunVec = normalize(sunPosition) * sunlightColor.a;
+    SunOrMoon = float(sunElevation > 1e-5);
 
     gl_Position = toClipSpace3(position);
 }
